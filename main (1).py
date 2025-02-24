@@ -14,6 +14,14 @@ if "OPENAI_API_KEY" not in os.environ:
 # Inicializar FastAPI
 app = FastAPI()
 
+@app.get("/")
+def home():
+    return {"message": "¡Railway funciona correctamente!"}
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))  # Usa el puerto de Railway
+    uvicorn.run(app, host="0.0.0.0", port=port)
+
 # 📂 Carpeta donde están los PDFs públicos de Google Drive
 PDF_FOLDER = "https://drive.google.com/drive/folders/1bgXRNCMuPAX6JCizDGovpAZplPFjub9N?usp=sharing"
 
