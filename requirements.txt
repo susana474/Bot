@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+chromadb
+langchain
+langchain_openai
+langchain_google_genai
+pypdf
+requests
