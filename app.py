@@ -2,16 +2,21 @@ import os
 import chromadb
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
 from langchain.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import tempfile
-import shutil
+import logging
+
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Configuración de API Keys
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
-    raise ValueError("🚨 No se encontró la clave de API de OpenAI.")
+    logger.warning("⚠️ No se encontró la clave de API de OpenAI. El servicio no funcionará correctamente.")
 
 # Inicializar FastAPI
 app = FastAPI(title="Lean Manufacturing Q&A")
@@ -25,22 +30,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Carpetas para almacenamiento
-UPLOAD_FOLDER = "./uploads"
-CHROMA_PATH = "./chroma_db"
+# Definir modelo para la solicitud
+class QuestionRequest(BaseModel):
+    question: str
+
+# Rutas para almacenamiento
+UPLOAD_DIR = os.path.join(os.getcwd(), "uploads")
+CHROMA_DIR = os.path.join(os.getcwd(), "chroma_db")
 
 # Crear carpetas si no existen
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(CHROMA_PATH, exist_ok=True)
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(CHROMA_DIR, exist_ok=True)
 
-# Variables globales
-db = chromadb.PersistentClient(path=CHROMA_PATH)
-collection = db.get_or_create_collection(name="lean_fabric")
-llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0, max_tokens=500)
+# Inicializar ChromaDB con manejo de errores
+try:
+    db = chromadb.PersistentClient(path=CHROMA_DIR)
+    collection = db.get_or_create_collection(name="lean_fabric")
+    logger.info("✅ ChromaDB inicializado correctamente")
+except Exception as e:
+    logger.error(f"❌ Error al inicializar ChromaDB: {str(e)}")
+    db = None
+    collection = None
 
-# Verificar si hay documentos indexados al inicio
-docs_count = len(collection.get(include=[])["ids"]) if collection.count() > 0 else 0
-print(f"ℹ️ {docs_count} documentos encontrados en la base de datos")
+# Inicializar el modelo de lenguaje con manejo de errores
+try:
+    llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0, max_tokens=500)
+    logger.info("✅ Modelo LLM inicializado correctamente")
+except Exception as e:
+    logger.error(f"❌ Error al inicializar el modelo LLM: {str(e)}")
+    llm = None
 
 # Función para procesar PDF y añadir a la base de datos
 def process_pdf(file_path):
@@ -48,35 +66,48 @@ def process_pdf(file_path):
         # Cargar PDF
         loader = PyPDFLoader(file_path)
         documents = loader.load()
+        logger.info(f"📄 PDF cargado: {file_path} - {len(documents)} páginas")
         
         # Dividir en fragmentos
         splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
         docs_chunks = splitter.split_documents(documents)
+        logger.info(f"✂️ Documento dividido en {len(docs_chunks)} fragmentos")
         
         # Almacenar en ChromaDB
-        start_id = collection.count()
-        for i, doc in enumerate(docs_chunks):
-            doc_id = str(start_id + i)
-            collection.add(
-                documents=[doc.page_content],
-                metadatas=[{"source": os.path.basename(file_path), "page": doc.metadata.get("page", 0)}],
-                ids=[doc_id]
-            )
-        
-        return len(docs_chunks)
+        if collection:
+            start_id = collection.count()
+            for i, doc in enumerate(docs_chunks):
+                doc_id = str(start_id + i)
+                collection.add(
+                    documents=[doc.page_content],
+                    metadatas=[{"source": os.path.basename(file_path), "page": doc.metadata.get("page", 0)}],
+                    ids=[doc_id]
+                )
+            logger.info(f"💾 {len(docs_chunks)} fragmentos añadidos a ChromaDB")
+            return len(docs_chunks)
+        else:
+            logger.error("❌ ChromaDB no está disponible")
+            return 0
     except Exception as e:
-        print(f"Error procesando PDF: {str(e)}")
+        logger.error(f"❌ Error procesando PDF: {str(e)}")
         return 0
 
 # Función para buscar en ChromaDB
 def search_chroma(query, k=3):
+    if not collection:
+        return [["No hay conexión a la base de datos."]]
+    
     if collection.count() == 0:
         return [["No hay documentos indexados en la base de datos."]]
+    
     results = collection.query(query_texts=[query], n_results=k)
     return results["documents"]
 
 # Función para responder preguntas con GPT
 def ask_ai(question):
+    if not llm:
+        return "El servicio de IA no está disponible en este momento."
+    
     search_results = search_chroma(question, k=3)
     context = "\n".join([str(item) for sublist in search_results for item in sublist])
 
@@ -87,15 +118,25 @@ def ask_ai(question):
         f"\nPregunta: {question}\nRespuesta:"
     )
 
-    response = llm.invoke(prompt)
-    return response
+    try:
+        response = llm.invoke(prompt)
+        return response.content
+    except Exception as e:
+        logger.error(f"❌ Error al invocar el modelo LLM: {str(e)}")
+        return f"Error al procesar la respuesta: {str(e)}"
 
 # Endpoint para salud de la API
 @app.get("/")
 async def health_check():
+    db_status = "disponible" if collection else "no disponible"
+    llm_status = "disponible" if llm else "no disponible"
+    doc_count = collection.count() if collection else 0
+    
     return {
         "status": "online",
-        "documents_indexed": collection.count()
+        "database": db_status,
+        "ai_model": llm_status,
+        "documents_indexed": doc_count
     }
 
 # Endpoint para subir PDFs
@@ -111,15 +152,18 @@ async def upload_pdf(file: UploadFile = File(...)):
         with open(temp_file.name, "wb") as f:
             f.write(contents)
         
+        logger.info(f"📤 Archivo recibido: {file.filename}")
+        
         # Procesar el PDF
         docs_added = process_pdf(temp_file.name)
         
         return {
             "filename": file.filename,
             "fragments_added": docs_added,
-            "total_documents": collection.count()
+            "total_documents": collection.count() if collection else 0
         }
     except Exception as e:
+        logger.error(f"❌ Error al procesar el archivo: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error al procesar el archivo: {str(e)}")
     finally:
         # Eliminar archivo temporal
@@ -128,34 +172,49 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 # Endpoint para hacer preguntas
 @app.post("/ask")
-async def get_answer(data: dict):
+async def get_answer(data: QuestionRequest):
     try:
-        question = data.get("question", "")
+        question = data.question
+        logger.info(f"❓ Pregunta recibida: {question}")
+        
         if not question:
             raise HTTPException(status_code=400, detail="🚨 No se proporcionó ninguna pregunta.")
         
         response = ask_ai(question)
-        return {"respuesta": str(response.content)}
+        logger.info("✅ Respuesta generada correctamente")
+        
+        return {"respuesta": response}
     
     except Exception as e:
+        logger.error(f"❌ Error al procesar la pregunta: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Endpoint para listar documentos
 @app.get("/documents")
 async def list_documents():
+    if not collection:
+        return {"error": "Base de datos no disponible", "documents": []}
+    
     if collection.count() == 0:
         return {"documents": []}
     
-    all_metadata = collection.get(include=["metadatas"])["metadatas"]
-    unique_sources = {}
-    
-    for meta in all_metadata:
-        source = meta.get("source")
-        if source and source not in unique_sources:
-            unique_sources[source] = True
-    
-    return {"documents": list(unique_sources.keys())}
+    try:
+        all_metadata = collection.get(include=["metadatas"])["metadatas"]
+        unique_sources = {}
+        
+        for meta in all_metadata:
+            source = meta.get("source")
+            if source and source not in unique_sources:
+                unique_sources[source] = True
+        
+        return {"documents": list(unique_sources.keys())}
+    except Exception as e:
+        logger.error(f"❌ Error al listar documentos: {str(e)}")
+        return {"error": str(e), "documents": []}
 
+# Para testing local
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+    port = int(os.getenv("PORT", 10000))
+    logger.info(f"🚀 Iniciando servidor en puerto {port}")
+    uvicorn.run(app, host="0.0.0.0", port=port)
