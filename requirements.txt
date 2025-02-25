@@ -7,3 +7,8 @@ langchain-openai==0.0.2
 langchain==0.0.325
 openai>=1.6.1
 pypdf==3.17.0
+gunicorn
+uvicorn
+fastapi  # Si estás usando FastAPI
+flask    # Si estás usando Flask
+
