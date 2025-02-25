@@ -15,7 +15,7 @@ if not OPENAI_API_KEY:
 app = FastAPI()
 
 # 📂 Carpeta local donde estarán los PDFs (Render no puede acceder a Google Drive)
-PDF_FOLDER = "./PDFs"
+PDF_FOLDER = "."
 
 # 📌 Descargar archivos de Google Drive (opcional, si quieres descargar dinámicamente)
 # TODO: Agregar lógica para descargar desde Google Drive si es necesario.
