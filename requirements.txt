@@ -1,8 +1,8 @@
-fastapi
-uvicorn
-chromadb
-langchain
-langchain_openai
-langchain_google_genai
-pypdf
-requests
+flask==2.2.2
+gunicorn==20.1.0
+chromadb==0.4.15
+langchain==0.0.304
+langchain_openai==0.0.5
+langchain_google_genai==0.0.3
+sentence-transformers==2.2.2
+PyPDF2==3.0.1
