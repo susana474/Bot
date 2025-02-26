@@ -57,7 +57,7 @@ except Exception as e:
 
 # Inicializar el modelo de lenguaje con manejo de errores
 try:
-    llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0, max_tokens=500)
+    llm = ChatOpenAI(model="gpt-4", temperature=0, max_tokens=8000)
     logger.info("✅ Modelo LLM inicializado correctamente")
 except Exception as e:
     logger.error(f"❌ Error al inicializar el modelo LLM: {str(e)}")
