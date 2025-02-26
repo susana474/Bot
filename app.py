@@ -163,8 +163,7 @@ def ask_ai(question):
     context = "\n".join([str(item) for sublist in search_results for item in sublist])
 
     prompt = (
-        f"Eres un asistente util que ayuda a los estudiantes a aprender conceptos de Lean Manufacturing, con ayuda del kit del simulador: GREEN LeanMan Grand Car Factory Simulation.
-A continuación se presentan fragmentos de documentos sobre Lean Manufacturing:"
+        f"Eres un asistente util que ayuda a los estudiantes a aprender conceptos de Lean Manufacturing, con ayuda del kit del simulador: GREEN LeanMan Grand Car Factory Simulation. A continuación se presentan fragmentos de documentos sobre Lean Manufacturing:"
         f"\n\n{context}\n\n"
         f"Basado en esta información, proporciona una respuesta clara y concisa en español  si no la encuentras busca en internet información relevante que ayude a la comprensión de este kit:"
         f"\nPregunta: {question}\nRespuesta:"
